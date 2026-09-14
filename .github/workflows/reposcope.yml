@@ -1,1 +1,33 @@
+姓名: RepoScope影响
 
+在……之上:
+pull_request:
+类型: [已打开,同步,重新打开]
+
+权限:
+拉式请求: 写#需要发布体系结构影响注释
+内容: 读
+
+工作:
+复验镜:
+连续的: Ubuntu-最新
+步骤:
+      - 姓名: 签出(完整的历史记录，以便操作可以与基本操作不同)
+uses: 操作/结帐@v4
+和……一起:
+提取深度: 0
+
+      #回购本地操作(此回购)。发布RepoScope时，替换为：
+      #uses:your-org/reposcope@v1
+      - 姓名: RepoScope PR影响
+uses: ./
+和……一起:
+          token: ${{secrets.GITHUB_TOKEN}}
+路径: '.'
+
+      - 姓名: 上传报表成品
+如果: 总是()
+uses: 操作/上载工件@v4
+和……一起:
+姓名: reposcope-report
+路径: reposcope-report.md
