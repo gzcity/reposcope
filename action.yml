@@ -1,0 +1,19 @@
+name: 'RepoScope PR Impact'
+description: 'Analyze the dependency blast radius of changed files and post an architecture-impact report on the PR. Local-first, zero-dependency.'
+author: 'reposcope'
+branding:
+  icon: 'git-branch'
+  color: 'blue'
+inputs:
+  token:
+    description: 'GitHub token used to post the PR comment. Defaults to the job token.'
+    default: ${{ github.token }}
+  path:
+    description: 'Path to the repo to analyze, relative to the workspace.'
+    default: '.'
+  base_ref:
+    description: 'Base branch to diff against. Defaults to the PR base ref.'
+    required: false
+runs:
+  using: 'node20'
+  main: 'action-runner.mjs'

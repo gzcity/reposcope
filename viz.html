@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RepoScope · 依赖可视化面板</title>
+<style>
+  :root{--bg:#0b0e14;--panel:#121721;--panel2:#171d2b;--line:#26304a;
+    --txt:#e6edf3;--sub:#8b97a8;--accent:#4f9dff;--hot:#ff6b6b;--cool:#4fd1b5}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:radial-gradient(1200px 600px at 70% -10%,#16203a 0%,var(--bg) 60%);
+    color:var(--txt);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  header{display:flex;align-items:center;gap:12px;padding:13px 22px;border-bottom:1px solid var(--line)}
+  .logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--cool));
+    display:grid;place-items:center;font-weight:800;color:#06121f}
+  h1{font-size:16px;font-weight:700}
+  .tag{font-size:11px;color:var(--sub);border:1px solid var(--line);padding:3px 8px;border-radius:20px}
+  .main{flex:1;display:grid;grid-template-columns:280px 1fr 290px;min-height:0}
+  .col{border-right:1px solid var(--line);padding:16px;overflow:auto}
+  .col:last-child{border-right:none}
+  label{font-size:12px;color:var(--sub);display:block;margin:14px 0 6px}
+  button{width:100%;background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    padding:9px;border-radius:9px;font-size:12px;cursor:pointer;margin-bottom:8px}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:linear-gradient(135deg,var(--accent),#3b7fe0);border:none;color:#fff;font-weight:600}
+  textarea{width:100%;height:90px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:9px;padding:8px;font-size:11px;font-family:monospace;outline:none;resize:vertical}
+  .stage{position:relative;background:
+    linear-gradient(var(--line) 1px,transparent 1px) 0 0/26px 26px,
+    linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/26px 26px,var(--panel);overflow:hidden}
+  svg{width:100%;height:100%}
+  .edge{stroke:var(--line);stroke-width:1.4;fill:none}
+  .edge.hi{stroke:var(--accent);stroke-width:2.2}
+  .node circle{stroke:var(--line);stroke-width:1.5;cursor:pointer;transition:.15s}
+  .node:hover circle,.node.sel circle{stroke:var(--accent);stroke-width:2.4}
+  .node text{fill:var(--sub);font-size:9.5px;pointer-events:none}
+  .stat{font-size:12px;color:var(--sub);margin-top:10px;line-height:1.8}
+  .stat b{color:var(--txt)}
+  .dep{font-size:11.5px;padding:6px 9px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:7px;margin-bottom:5px;word-break:break-all;color:var(--txt)}
+  .dep.in{border-left:3px solid var(--cool)}
+  .dep.out{border-left:3px solid var(--accent)}
+  .head{font-size:12px;color:var(--sub);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">R</div><h1>RepoScope 可视化面板</h1>
+  <span class="tag">双轨 · Agent + 人类可读</span>
+</header>
+<div class="main">
+  <div class="col">
+    <button class="primary" id="ex">📦 加载示例（facebook/react）</button>
+    <label>加载真实分析（跑 graph.mjs 生成的 JSON）</label>
+    <button id="pick">📂 选择 graph.json 文件</button>
+    <input type="file" id="file" accept=".json" hidden />
+    <label>或粘贴 JSON</label>
+    <textarea id="json" placeholder='{"edges":[["a/b","a/c"]]}'></textarea>
+    <button id="load">↺ 渲染粘贴的 JSON</button>
+    <label>🔥 Blast Radius（改动影响范围）</label>
+    <textarea id="changed" placeholder="改动的文件，如：packages/react-dom/src/ReactDOM.js"></textarea>
+    <button id="blast">⚡ 计算影响范围</button>
+    <div class="stat" id="blastStat"></div>
+    <div class="stat" id="stat"></div>
+  </div>
+  <div class="stage"><svg id="svg" viewBox="0 0 800 560"></svg></div>
+  <div class="col" id="detail">
+    <div class="head">节点详情</div>
+    <div class="stat">点击图中的节点，查看它的依赖关系。</div>
+  </div>
+</div>
+
+<script>
+/* ---------- 内置示例：facebook/react 风格的模块级依赖图 ---------- */
+const EXAMPLE = { edges:[
+  ["packages/react","packages/react-reconciler"],
+  ["packages/react","packages/shared"],
+  ["packages/react-dom","packages/react-reconciler"],
+  ["packages/react-dom","packages/scheduler"],
+  ["packages/react-dom","packages/react"],
+  ["packages/react-reconciler","packages/shared"],
+  ["packages/react-reconciler","packages/scheduler"]
+]};
+
+const svg=document.getElementById("svg");
+const W=800,H=560;
+let cur={edges:[],nodes:[],pos:{}};
+
+function basename(p){return p.split("/").pop()}
+function short(p){const s=p.split("/");return s.length>2?`…/${s.slice(-1).join("/")}`:p}
+
+/* 与 analyze.mjs 的 moduleOf 保持一致的模块聚合 */
+function toMod(x){
+  const p=x.split("/");
+  if(p.length>2 && ["packages","apps","src","lib","cmd"].includes(p[0])) return p[0]+"/"+p[1];
+  return p.length>1?p[0]:x;
+}
+/* 前端版 blast radius（与 analyze.mjs 一致） */
+function blastRadius(edges, changed){
+  const seeds=new Set(changed.map(toMod));
+  const rev={}; for(const [a,b] of edges) (rev[b]=rev[b]||[]).push(a);
+  const dist={}; const q=[...seeds]; seeds.forEach(s=>dist[s]=0);
+  while(q.length){ const c=q.shift(); for(const u of (rev[c]||[])) if(dist[u]===undefined){dist[u]=dist[c]+1;q.push(u);} }
+  return {changed:[...seeds],dist};
+}
+function nodeColor(n){
+  if(!cur.blast) return "var(--panel2)";
+  if(cur.blast.changed.includes(n)) return "#ff6b6b";
+  const d=cur.blast.dist[n];
+  if(d===1) return "#ffa94d";
+  if(d>1) return "#b794f4";
+  return "var(--panel2)";
+}
+
+function layout(edges){
+  const nodes=[...new Set(edges.flat())];
+  const pos={};
+  nodes.forEach((n)=>pos[n]={x:Math.random()*600+100,y:Math.random()*400+80,vx:0,vy:0});
+  for(let it=0;it<300;it++){
+    for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){
+      const a=pos[nodes[i]],b=pos[nodes[j]];
+      let dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy)||1,f=2200/(d*d);
+      dx/=d;dy/=d;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;
+    }
+    for(const[u,v]of edges){
+      const a=pos[u],b=pos[v];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,f=(d-95)*0.02;
+      dx/=d;dy/=d;a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;
+    }
+    for(const n of nodes){const p=pos[n];
+      p.vx+=(W/2-p.x)*0.004;p.vy+=(H/2-p.y)*0.004;
+      p.vx*=0.85;p.vy*=0.85;p.x+=p.vx;p.y+=p.vy;
+      p.x=Math.max(50,Math.min(W-50,p.x));p.y=Math.max(26,Math.min(H-26,p.y));
+    }
+  }
+  return {nodes,pos};
+}
+
+function render(data){
+  cur.edges=data.edges||[];
+  cur._last=data;
+  const {nodes,pos}=layout(cur.edges);
+  cur.nodes=nodes;cur.pos=pos;
+  svg.innerHTML="";
+  cur.edges.forEach(([u,v])=>{
+    const a=pos[u],b=pos[v];
+    const l=document.createElementNS("http://www.w3.org/2000/svg","line");
+    l.setAttribute("x1",a.x);l.setAttribute("y1",a.y);l.setAttribute("x2",b.x);l.setAttribute("y2",b.y);
+    const hi=cur.blast && (cur.blast.dist[u]!==undefined||cur.blast.dist[v]!==undefined);
+    l.setAttribute("class",hi?"edge hi":"edge");l.dataset.u=u;l.dataset.v=v;svg.appendChild(l);
+  });
+  nodes.forEach(n=>{
+    const p=pos[n],g=document.createElementNS("http://www.w3.org/2000/svg","g");
+    g.setAttribute("class","node");
+    const c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+    c.setAttribute("cx",p.x);c.setAttribute("cy",p.y);c.setAttribute("r",15);
+    c.setAttribute("fill",nodeColor(n));g.appendChild(c);
+    const t=document.createElementNS("http://www.w3.org/2000/svg","text");
+    t.setAttribute("x",p.x);t.setAttribute("y",p.y-20);t.setAttribute("text-anchor","middle");
+    t.textContent=short(n);g.appendChild(t);
+    g.onclick=()=>select(n);svg.appendChild(g);
+  });
+  document.getElementById("stat").innerHTML=
+    `模块/文件：<b>${nodes.length}</b><br>依赖边：<b>${cur.edges.length}</b>`;
+}
+
+function select(n){
+  document.querySelectorAll(".node").forEach(g=>g.classList.remove("sel"));
+  event.currentTarget.classList.add("sel");
+  document.querySelectorAll(".edge").forEach(l=>{
+    const on=l.dataset.u===n||l.dataset.v===n;l.classList.toggle("hi",on);
+  });
+  const ins=cur.edges.filter(([_,v])=>v===n).map(([u])=>u);
+  const outs=cur.edges.filter(([u])=>u===n).map(([_,v])=>v);
+  document.getElementById("detail").innerHTML=
+    `<div class="head">${basename(n)}</div>
+     <div class="stat" style="margin-top:0">${n}</div>
+     <div class="head">被依赖（${ins.length}）</div>
+     ${ins.map(x=>`<div class="dep in">${short(x)}</div>`).join("")||'<div class="stat">—</div>'}
+     <div class="head">依赖谁（${outs.length}）</div>
+     ${outs.map(x=>`<div class="dep out">${short(x)}</div>`).join("")||'<div class="stat">—</div>'}`;
+}
+
+document.getElementById("ex").onclick=()=>{cur.blast=null;document.getElementById("blastStat").innerHTML="";render(EXAMPLE)};
+document.getElementById("pick").onclick=()=>document.getElementById("file").click();
+document.getElementById("file").onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>{try{render(JSON.parse(r.result))}catch(err){alert("JSON 解析失败")}};r.readAsText(f);
+};
+document.getElementById("load").onclick=()=>{
+  try{render(JSON.parse(document.getElementById("json").value))}catch(err){alert("JSON 解析失败")}
+};
+document.getElementById("blast").onclick=()=>{
+  const raw=document.getElementById("changed").value.split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+  if(!raw.length){alert("请输入改动的文件路径");return;}
+  cur.blast=blastRadius(cur.edges, raw);
+  const d=cur.blast.dist;
+  const d1=Object.keys(d).filter(k=>d[k]===1);
+  const dN=Object.keys(d).filter(k=>d[k]>1);
+  document.getElementById("blastStat").innerHTML=
+    `改动了：<b style="color:#ff6b6b">${cur.blast.changed.join(", ")}</b><br>`+
+    `直接影响（1跳）：<b style="color:#ffa94d">${d1.join(", ")||"无"}</b><br>`+
+    `传递影响：<b style="color:#b794f4">${dN.join(", ")||"无"}</b>`;
+  render(cur._last||EXAMPLE);
+};
+render(EXAMPLE);
+</script>
+</body>
+</html>

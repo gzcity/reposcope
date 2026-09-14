@@ -1,0 +1,38 @@
+{
+  "name": "reposcope",
+  "version": "0.2.0",
+  "description": "Local-first code map for AI agents — paste any repo URL, get a dependency graph + blast radius your agent can use. Zero API key, zero upload, zero hard dependencies.",
+  "type": "module",
+  "bin": {
+    "reposcope": "graph.mjs"
+  },
+  "scripts": {
+    "mcp": "node server.mjs",
+    "graph": "node graph.mjs",
+    "analyze": "node graph.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "code-analysis",
+    "architecture",
+    "dependency-graph",
+    "llm",
+    "ollama",
+    "tree-sitter",
+    "local-first",
+    "developer-tools",
+    "blast-radius"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-javascript": "*",
+    "tree-sitter-typescript": "*",
+    "tree-sitter-python": "*",
+    "tree-sitter-go": "*",
+    "tree-sitter-rust": "*"
+  }
+}

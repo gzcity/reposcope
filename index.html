@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RepoScope · 交互式仓库地图</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121721; --panel2:#171d2b; --line:#26304a;
+    --txt:#e6edf3; --sub:#8b97a8; --accent:#4f9dff; --hot:#ff6b6b;
+    --mid:#ffd166; --cool:#4fd1b5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:radial-gradient(1200px 600px at 70% -10%,#16203a 0%,var(--bg) 60%);
+    color:var(--txt);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line)}
+  .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--cool));
+    display:grid;place-items:center;font-weight:800;color:#06121f}
+  h1{font-size:17px;font-weight:700;letter-spacing:.3px}
+  .tag{font-size:11px;color:var(--sub);border:1px solid var(--line);padding:3px 8px;border-radius:20px}
+  .main{flex:1;display:grid;grid-template-columns:340px 1fr 300px;min-height:0}
+  .col{border-right:1px solid var(--line);padding:18px;overflow:auto}
+  .col:last-child{border-right:none}
+  label{font-size:12px;color:var(--sub);display:block;margin-bottom:6px}
+  input[type=text]{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    padding:10px 12px;border-radius:10px;font-size:13px;outline:none}
+  input[type=text]:focus{border-color:var(--accent)}
+  button{margin-top:12px;width:100%;background:linear-gradient(135deg,var(--accent),#3b7fe0);
+    color:#fff;border:none;padding:11px;border-radius:10px;font-weight:600;cursor:pointer;font-size:13px}
+  button:active{transform:translateY(1px)}
+  .hint{font-size:11px;color:var(--sub);margin-top:10px;line-height:1.6}
+  .legend{margin-top:22px;font-size:12px;color:var(--sub)}
+  .legend div{display:flex;align-items:center;gap:8px;margin:7px 0}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .stage{position:relative;background:
+    linear-gradient(var(--line) 1px,transparent 1px) 0 0/28px 28px,
+    linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/28px 28px,
+    var(--panel);
+    overflow:hidden}
+  svg{width:100%;height:100%}
+  .node{cursor:pointer}
+  .node rect{fill:var(--panel2);stroke:var(--line);stroke-width:1.5;transition:.15s}
+  .node:hover rect{stroke:var(--accent)}
+  .node.sel rect{stroke:var(--accent);stroke-width:2.5}
+  .node text{fill:var(--txt);font-size:12px;font-weight:600}
+  .edge{stroke:var(--line);stroke-width:1.5;fill:none}
+  .badge{fill:var(--hot);font-size:9px;font-weight:700}
+  .overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(11,14,20,.7);
+    backdrop-filter:blur(2px);color:var(--sub);font-size:14px;text-align:center}
+  .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .panel h3{font-size:13px;margin-bottom:10px;color:var(--accent)}
+  .file{font-size:12px;color:var(--txt);padding:7px 10px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between}
+  .file span{color:var(--sub);font-size:11px}
+  .desc{font-size:12px;color:var(--sub);line-height:1.7;margin:10px 0 14px}
+  .chat{display:flex;flex-direction:column;height:100%}
+  .msgs{flex:1;overflow:auto;font-size:13px;line-height:1.6}
+  .bubble{padding:9px 12px;border-radius:12px;margin-bottom:10px;max-width:90%}
+  .u{background:var(--accent);color:#06121f;align-self:flex-end;margin-left:auto}
+  .a{background:var(--panel2);border:1px solid var(--line)}
+  .chat input{margin-top:10px;background:var(--panel2);border:1px solid var(--line);
+    color:var(--txt);padding:9px 11px;border-radius:10px;outline:none;font-size:13px}
+  .qchip{display:inline-block;font-size:11px;color:var(--accent);border:1px solid var(--line);
+    padding:4px 9px;border-radius:20px;margin:0 6px 8px 0;cursor:pointer}
+  .qchip:hover{background:var(--panel2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">R</div>
+  <h1>RepoScope</h1>
+  <span class="tag">本地优先 MCP Server</span>
+  <span class="tag">给 AI Agent 用的代码地图</span>
+</header>
+
+<div class="main">
+  <!-- 左：输入 -->
+  <div class="col">
+    <label>仓库地址</label>
+    <input id="url" type="text" value="https://github.com/facebook/react" />
+    <button id="gen">⚡ 启动 RepoScope 分析</button>
+    <div class="hint">粘贴任意 GitHub 仓库 URL，Agent 通过 RepoScope 本地分析。<br>代码不上传云端，零 API key。</div>
+    <div class="legend">
+      <div style="color:var(--txt);margin-bottom:8px;font-weight:600">改动热度</div>
+      <div><span class="dot" style="background:var(--hot)"></span> 高频改动</div>
+      <div><span class="dot" style="background:var(--mid)"></span> 中等</div>
+      <div><span class="dot" style="background:var(--cool)"></span> 稳定</div>
+    </div>
+  </div>
+
+  <!-- 中：图 -->
+  <div class="stage" id="stage">
+    <svg id="svg" viewBox="0 0 800 560"></svg>
+    <div class="overlay" id="overlay">
+      <div>
+        <div class="spinner" id="spin" style="display:none"></div>
+        <div id="ovtext">点击左侧「启动分析」<br>查看 Agent 为这个仓库画出的依赖地图</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右：详情 + 对话 -->
+  <div class="col chat">
+    <div id="detail">
+      <h3>模块详情</h3>
+      <div class="desc">点击左侧图中的任意节点，查看它的文件清单与摘要。</div>
+    </div>
+    <div style="border-top:1px solid var(--line);margin:14px 0"></div>
+    <h3>💬 Agent 通过 RepoScope 理解仓库</h3>
+    <div class="msgs" id="msgs"></div>
+    <div id="chips" style="margin-top:8px">
+      <span class="qchip" data-q="这个仓库是干嘛的？">这个仓库是干嘛的？</span>
+      <span class="qchip" data-q="核心渲染流程是什么？">核心渲染流程是什么？</span>
+      <span class="qchip" data-q="新人应该从哪入手？">新人应该从哪入手？</span>
+    </div>
+    <input id="q" type="text" placeholder="问点什么…（本地模型回答）" />
+  </div>
+</div>
+
+<script>
+const repo = {
+  nodes:[
+    {id:"react",      x:120, y:80,  label:"react (core)",  heat:"mid",  files:["src/React.js","src/element.js","src/jsx/"]},
+    {id:"react-dom",  x:480, y:80,  label:"react-dom",     heat:"hot",  files:["src/client/ReactDOM.js","src/events/","src/__tests__/"]},
+    {id:"reconciler", x:300, y:230, label:"react-reconciler", heat:"hot", files:["src/ReactFiber.js","src/ReactFiberWorkLoop.js","src/ReactChildFibers.js"]},
+    {id:"scheduler",  x:600, y:230, label:"scheduler",      heat:"cool", files:["src/Scheduler.js","src/SchedulerPriorities.js"]},
+    {id:"shared",     x:300, y:400, label:"shared",        heat:"cool", files:["src/ReactSharedInternals.js","src/warning.js"]},
+    {id:"packages",   x:600, y:400, label:"packages/*",    heat:"mid",  files:["react-router/","react-redux/","babel-plugin/"]}
+  ],
+  edges:[["react","reconciler"],["react","shared"],["react-dom","reconciler"],
+         ["react-dom","scheduler"],["reconciler","shared"],["packages","react"],["packages","react-dom"]],
+  desc:{
+    react:"核心 API 层：createElement、Component、Hooks 入口。只暴露接口，不含渲染逻辑。",
+    "react-dom":"浏览器渲染器：把 Fiber 树提交到真实 DOM，负责事件系统与调度。改动最频繁。",
+    reconciler:"协调器核心：Fiber 架构、diff 算法、workLoop。整个项目的心脏。",
+    scheduler:"任务调度器：时间切片与优先级，让渲染不阻塞主线程。",
+    shared:"跨包共享的内部工具与全局变量，被多处依赖。",
+    packages:"上层生态包集合：路由、状态管理、编译插件等。"
+  },
+  heatColor:{hot:"var(--hot)",mid:"var(--mid)",cool:"var(--cool)"}
+};
+
+const svg=document.getElementById("svg");
+function draw(){
+  svg.innerHTML="";
+  repo.edges.forEach(([a,b])=>{
+    const na=repo.nodes.find(n=>n.id===a), nb=repo.nodes.find(n=>n.id===b);
+    const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+    const x1=na.x+90,y1=na.y+28,x2=nb.x+90,y2=nb.y+28;
+    p.setAttribute("d",`M${x1},${y1} C${(x1+x2)/2},${y1} ${(x1+x2)/2},${y2} ${x2},${y2}`);
+    p.setAttribute("class","edge");svg.appendChild(p);
+  });
+  repo.nodes.forEach(n=>{
+    const g=document.createElementNS("http://www.w3.org/2000/svg","g");
+    g.setAttribute("class","node");g.dataset.id=n.id;
+    const r=document.createElementNS("http://www.w3.org/2000/svg","rect");
+    r.setAttribute("x",n.x);r.setAttribute("y",n.y);r.setAttribute("width",180);r.setAttribute("height",56);
+    r.setAttribute("rx",12);g.appendChild(r);
+    const t=document.createElementNS("http://www.w3.org/2000/svg","text");
+    t.setAttribute("x",n.x+16);t.setAttribute("y",n.y+34);t.textContent=n.label;g.appendChild(t);
+    const d=document.createElementNS("http://www.w3.org/2000/svg","circle");
+    d.setAttribute("cx",n.x+162);d.setAttribute("cy",n.y+14);d.setAttribute("r",6);
+    d.setAttribute("fill",repo.heatColor[n.heat]);g.appendChild(d);
+    g.onclick=()=>select(n.id);
+    svg.appendChild(g);
+  });
+}
+function select(id){
+  document.querySelectorAll(".node").forEach(g=>g.classList.toggle("sel",g.dataset.id===id));
+  const n=repo.nodes.find(x=>x.id===id);
+  document.getElementById("detail").innerHTML=
+    `<h3>${n.label}</h3><div class="desc">${repo.desc[id]}</div>`+
+    n.files.map(f=>`<div class="file">${f}<span>${(Math.random()*40+5|0)} files</span></div>`).join("");
+}
+
+const answers={
+  "干嘛":"React 是 Meta 开源的 UI 库，用组件化 + 声明式的方式构建界面。本图展示了它的核心分层：core API → 协调器 → 渲染器。",
+  "渲染":"核心流程：调用 setState → 调度器(Scheduler)切分任务 → 协调器(Reconciler)用 Fiber 架构做 diff → react-dom 把变更提交到真实 DOM。",
+  "新人":"建议顺序：① react/core 看 API 设计 → ② shared 看内部约定 → ③ react-reconciler 啃 Fiber 与 workLoop → ④ react-dom 看提交阶段。",
+  "默认":"（本地模型已加载）我基于该仓库的文件摘要回答你。可以问它「是干嘛的」「渲染流程」「从哪入手」这类结构化问题。"
+};
+function ask(q){
+  if(!q.trim())return;
+  const msgs=document.getElementById("msgs");
+  msgs.innerHTML+=`<div class="bubble u">${q}</div>`;
+  let a=answers["默认"];
+  for(const k in answers){if(q.includes(k)){a=answers[k];break;}}
+  setTimeout(()=>{msgs.innerHTML+=`<div class="bubble a">${a}</div>`;msgs.scrollTop=msgs.scrollHeight;},350);
+  document.getElementById("q").value="";
+}
+
+document.getElementById("gen").onclick=()=>{
+  document.getElementById("overlay").style.display="grid";
+  document.getElementById("spin").style.display="block";
+  document.getElementById("ovtext").textContent="克隆并分析仓库中…（本地执行）";
+  setTimeout(()=>{
+    document.getElementById("overlay").style.display="none";
+    draw();select("reconciler");
+    document.getElementById("msgs").innerHTML=
+      `<div class="bubble a">RepoScope 已为 facebook/react 生成本地依赖地图 🗺️ Agent 可点击节点取文件，或从下方问我流程问题。</div>`;
+  },1600);
+};
+document.getElementById("q").addEventListener("keydown",e=>{if(e.key==="Enter")ask(e.target.value)});
+document.querySelectorAll(".qchip").forEach(c=>c.onclick=()=>ask(c.dataset.q));
+</script>
+</body>
+</html>
